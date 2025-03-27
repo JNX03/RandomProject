@@ -1,6 +1,6 @@
 async function postRandomEvent() {
     const url = 'https://goodevent.tdc.mi.th/api/v1/event';
-    const token = 'Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJBbHlhMTYiLCJpYXQiOjE3Mjk5NjA1MzYsImV4cCI6MTcyOTk2MDgzNn0.HZpqInTwv2HBAfxr0KSU4M7z_yNt13Yeky0Uo1Y5tic';
+    const token = 'Bearer xxx';
     const eventNames = ["ทำความสะอาด", "ทำความดี", "ล้างพื้น", "ทิ้งขยะ", "ล้างห้องน้ำ", "จัดเก้าอี้", "ทำงาน"];
     const locations = ["บ้าน", "โรงเรียน", "ที่ทำงาน", "วัด", "สาธารณะ", "หมู่บ้าน"];
     const typeEvents = [
