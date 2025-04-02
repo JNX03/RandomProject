@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Real-Time Pose Detection</title>
+  <style>
+    body { margin: 0; position: relative; font-family: sans-serif; }
+    video, canvas { position: absolute; top: 0; left: 0; transform: scaleX(-1); }
+    #log { position: absolute; top: 500px; left: 0; width: 640px; max-height: 200px; overflow-y: auto; background: #f0f0f0; padding: 10px; white-space: pre-wrap; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <video id="video" width="640" height="480" autoplay playsinline></video>
+  <canvas id="canvas" width="640" height="480"></canvas>
+  <div id="log"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.9.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const logEl = document.getElementById('log');
+
+    async function initCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      video.srcObject = stream;
+      return new Promise(res => video.onloadedmetadata = () => res(video));
+    }
+
+    const isHandRaised = (pts, side) => {
+      const wrist = pts.find(p => p.part === side + 'Wrist');
+      const shoulder = pts.find(p => p.part === side + 'Shoulder');
+      return wrist && shoulder && wrist.score > 0.5 && shoulder.score > 0.5 && wrist.position.y < shoulder.position.y;
+    };
+
+    const headDirection = pts => {
+      const nose = pts.find(p => p.part === 'nose');
+      const lEar = pts.find(p => p.part === 'leftEar');
+      const rEar = pts.find(p => p.part === 'rightEar');
+      if(nose && lEar && rEar && nose.score > 0.5 && lEar.score > 0.5 && rEar.score > 0.5) {
+        const dL = Math.abs(nose.position.x - lEar.position.x);
+        const dR = Math.abs(nose.position.x - rEar.position.x);
+        const thresh = Math.max(10, Math.abs(lEar.position.x - rEar.position.x) * 0.05);
+        if(dL > dR + thresh) return 'right';
+        if(dR > dL + thresh) return 'left';
+      }
+      return 'center';
+    };
+
+    const drawPoints = (pts, minScore, ctx, scale=1) => {
+      pts.forEach(p => {
+        if(p.score >= minScore) {
+          ctx.beginPath();
+          ctx.arc(p.position.x * scale, p.position.y * scale, 4, 0, 2 * Math.PI);
+          ctx.fillStyle = 'aqua';
+          ctx.fill();
+        }
+      });
+    };
+
+    const drawLinks = (pts, minScore, ctx, scale=1) => {
+      const adjacent = posenet.getAdjacentKeyPoints(pts, minScore);
+      adjacent.forEach(([a, b]) => {
+        ctx.beginPath();
+        ctx.moveTo(a.position.x * scale, a.position.y * scale);
+        ctx.lineTo(b.position.x * scale, b.position.y * scale);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'chartreuse';
+        ctx.stroke();
+      });
+    };
+
+    async function main() {
+      await initCamera();
+      video.play();
+      const net = await posenet.load();
+      async function detect() {
+        const pose = await net.estimateSinglePose(video, { flipHorizontal: true });
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        drawPoints(pose.keypoints, 0.5, ctx);
+        drawLinks(pose.keypoints, 0.5, ctx);
+        const leftRaised = isHandRaised(pose.keypoints, 'left');
+        const rightRaised = isHandRaised(pose.keypoints, 'right');
+        const headDir = headDirection(pose.keypoints);
+        let logStr = pose.keypoints.map(p => `${p.part}: (${Math.round(p.position.x)}, ${Math.round(p.position.y)})`).join('\n');
+        logStr += `\nLeft Hand: ${leftRaised}\nRight Hand: ${rightRaised}\nHead: ${headDir}`;
+        logEl.textContent = logStr;
+        requestAnimationFrame(detect);
+      }
+      detect();
+    }
+
+    main();
+  </script>
+</body>
+</html>
