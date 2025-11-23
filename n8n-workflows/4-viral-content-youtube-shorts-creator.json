@@ -1,0 +1,500 @@
+{
+  "name": "Viral Content to YouTube Shorts Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 3
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Every 3 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.reddit.com/r/videos/hot.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "25"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-reddit-videos",
+      "name": "Fetch Reddit Hot Videos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [470, 200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.reddit.com/r/funny/hot.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "25"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-reddit-funny",
+      "name": "Fetch Reddit Funny",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [470, 350]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.reddit.com/r/Damnthatsinteresting/hot.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "25"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-reddit-interesting",
+      "name": "Fetch Reddit Interesting",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [470, 500]
+    },
+    {
+      "parameters": {
+        "operation": "merge",
+        "mode": "append"
+      },
+      "id": "merge-reddit-posts",
+      "name": "Merge Reddit Posts",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [690, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract and filter viral content from Reddit\nconst items = $input.all();\nconst output = [];\n\nfor (const item of items) {\n  const posts = item.json.data?.children || [];\n  \n  for (const post of posts) {\n    const data = post.data;\n    \n    // Filter criteria for viral potential\n    const score = data.score || 0;\n    const numComments = data.num_comments || 0;\n    const upvoteRatio = data.upvote_ratio || 0;\n    \n    // Only select highly engaged posts\n    if (score > 5000 && upvoteRatio > 0.85 && numComments > 100) {\n      // Check if it's video content or can be converted\n      const hasVideo = data.is_video || data.media?.reddit_video;\n      const hasImage = data.post_hint === 'image';\n      const hasText = data.selftext && data.selftext.length > 100;\n      \n      if (hasVideo || hasImage || hasText) {\n        output.push({\n          json: {\n            title: data.title,\n            score: score,\n            comments: numComments,\n            url: data.url,\n            permalink: `https://reddit.com${data.permalink}`,\n            videoUrl: data.media?.reddit_video?.fallback_url,\n            imageUrl: data.url_overridden_by_dest,\n            text: data.selftext,\n            subreddit: data.subreddit,\n            contentType: hasVideo ? 'video' : hasImage ? 'image' : 'text',\n            author: data.author,\n            created: data.created_utc\n          }\n        });\n      }\n    }\n  }\n}\n\n// Sort by score and return top 3\nreturn output.sort((a, b) => b.json.score - a.json.score).slice(0, 3);"
+      },
+      "id": "filter-viral-content",
+      "name": "Filter Viral Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 350]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.contentType }}",
+              "operation": "equals",
+              "value2": "video"
+            }
+          ]
+        }
+      },
+      "id": "route-by-content-type",
+      "name": "Route by Content Type",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1130, 350]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.videoUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-video",
+      "name": "Download Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1350, 250]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Convert image/text content to video using AI\nconst item = $input.all()[0].json;\n\nlet videoPrompt = '';\n\nif (item.contentType === 'image') {\n  videoPrompt = `Create a 15-second engaging video showcasing this viral content: ${item.title}. Add dynamic zoom effects, smooth transitions, and trending music.`;\n} else if (item.contentType === 'text') {\n  const textPreview = item.text.substring(0, 300);\n  videoPrompt = `Create a 30-second text-to-video with animated text overlay: \"${item.title}\". Story: ${textPreview}. Use viral-style editing with captions and background music.`;\n}\n\nreturn [{\n  json: {\n    ...item,\n    videoPrompt: videoPrompt,\n    needsGeneration: true\n  }\n}];"
+      },
+      "id": "prepare-ai-generation",
+      "name": "Prepare AI Video Generation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 450]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/videos",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"sora-1.5-turbo\",\n  \"prompt\": \"{{ $json.videoPrompt }}\",\n  \"size\": \"9:16\",\n  \"duration\": 15\n}",
+        "options": {}
+      },
+      "id": "generate-video-from-content",
+      "name": "Generate Video from Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1570, 450],
+      "credentials": {
+        "openAiApi": {
+          "id": "2",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 40,
+        "unit": "seconds"
+      },
+      "id": "wait-for-generation",
+      "name": "Wait for Video Generation",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1790, 450],
+      "webhookId": "video-gen-wait"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.openai.com/v1/videos/{{ $json.id }}/content",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-generated-video",
+      "name": "Download Generated Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2010, 450],
+      "credentials": {
+        "openAiApi": {
+          "id": "2",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "merge",
+        "mode": "append"
+      },
+      "id": "merge-videos",
+      "name": "Merge All Videos",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [2230, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Add captions and prepare for YouTube Shorts\nconst items = $input.all();\nconst output = [];\n\nfor (const item of items) {\n  const originalTitle = item.json.title || '';\n  \n  // Create YouTube Shorts optimized title (max 100 chars)\n  let youtubeTitle = originalTitle.substring(0, 90);\n  if (youtubeTitle.length < originalTitle.length) {\n    youtubeTitle += '...';\n  }\n  \n  // Create description with credits\n  const description = `${originalTitle}\\n\\n` +\n    `🔥 Viral content that got ${(item.json.score || 0).toLocaleString()} upvotes!\\n\\n` +\n    `Original source: ${item.json.permalink || 'Reddit'}\\n` +\n    `Credits to: u/${item.json.author || 'unknown'}\\n\\n` +\n    `#Shorts #Viral #Trending #Reddit #${item.json.subreddit || 'Videos'} ` +\n    `#Amazing #MustWatch #ForYou #YouTubeShorts`;\n  \n  // Add thumbnail timestamp (3 seconds in)\n  output.push({\n    json: {\n      title: youtubeTitle,\n      description: description,\n      tags: ['shorts', 'viral', 'trending', 'reddit', item.json.subreddit, 'amazing'],\n      categoryId: '24', // Entertainment\n      privacyStatus: 'public',\n      madeForKids: false,\n      originalUrl: item.json.permalink\n    },\n    binary: item.binary\n  });\n}\n\nreturn output;"
+      },
+      "id": "prepare-youtube-shorts",
+      "name": "Prepare for YouTube Shorts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 350]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "video": "={{ $binary.data }}",
+        "title": "={{ $json.title }}",
+        "description": "={{ $json.description }}",
+        "categoryId": "={{ $json.categoryId }}",
+        "additionalFields": {
+          "privacyStatus": "={{ $json.privacyStatus }}",
+          "madeForKids": "={{ $json.madeForKids }}",
+          "tags": "={{ $json.tags }}"
+        }
+      },
+      "id": "upload-to-youtube-shorts",
+      "name": "Upload to YouTube Shorts",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [2670, 350],
+      "credentials": {
+        "youtubeOAuth2Api": {
+          "id": "4",
+          "name": "YouTube OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "minutes"
+      },
+      "id": "delay-between-uploads",
+      "name": "Wait 15 Min Between Uploads",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2890, 350],
+      "webhookId": "upload-delay"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Track upload success and generate report\nconst items = $input.all();\nconst successfulUploads = items.filter(i => i.json.id).length;\n\nconst report = {\n  totalProcessed: items.length,\n  successfulUploads: successfulUploads,\n  timestamp: new Date().toISOString(),\n  videos: items.map(i => ({\n    title: i.json.title,\n    videoId: i.json.id,\n    url: `https://youtube.com/shorts/${i.json.id}`,\n    originalSource: i.json.originalUrl\n  }))\n};\n\nconsole.log('YouTube Shorts upload complete:', JSON.stringify(report, null, 2));\n\nreturn [{ json: report }];"
+      },
+      "id": "track-upload-results",
+      "name": "Track Upload Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3110, 350]
+    }
+  ],
+  "connections": {
+    "Schedule Every 3 Hours": {
+      "main": [
+        [
+          {
+            "node": "Fetch Reddit Hot Videos",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Reddit Funny",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Reddit Interesting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Reddit Hot Videos": {
+      "main": [
+        [
+          {
+            "node": "Merge Reddit Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Reddit Funny": {
+      "main": [
+        [
+          {
+            "node": "Merge Reddit Posts",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Fetch Reddit Interesting": {
+      "main": [
+        [
+          {
+            "node": "Merge Reddit Posts",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Reddit Posts": {
+      "main": [
+        [
+          {
+            "node": "Filter Viral Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Viral Content": {
+      "main": [
+        [
+          {
+            "node": "Route by Content Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Content Type": {
+      "main": [
+        [
+          {
+            "node": "Download Video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare AI Video Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video": {
+      "main": [
+        [
+          {
+            "node": "Merge All Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Video Generation": {
+      "main": [
+        [
+          {
+            "node": "Generate Video from Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Video from Content": {
+      "main": [
+        [
+          {
+            "node": "Wait for Video Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Video Generation": {
+      "main": [
+        [
+          {
+            "node": "Download Generated Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Generated Video": {
+      "main": [
+        [
+          {
+            "node": "Merge All Videos",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge All Videos": {
+      "main": [
+        [
+          {
+            "node": "Prepare for YouTube Shorts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare for YouTube Shorts": {
+      "main": [
+        [
+          {
+            "node": "Upload to YouTube Shorts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to YouTube Shorts": {
+      "main": [
+        [
+          {
+            "node": "Wait 15 Min Between Uploads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 15 Min Between Uploads": {
+      "main": [
+        [
+          {
+            "node": "Track Upload Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "YouTube Automation",
+      "id": "youtube"
+    },
+    {
+      "name": "Content Creation",
+      "id": "content"
+    },
+    {
+      "name": "Viral Marketing",
+      "id": "viral"
+    }
+  ],
+  "meta": {
+    "instanceId": "auto-generated"
+  },
+  "id": "viral-youtube-shorts",
+  "versionId": "1"
+}

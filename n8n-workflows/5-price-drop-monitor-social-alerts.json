@@ -1,0 +1,371 @@
+{
+  "name": "Price Drop Monitor & Social Media Alert System",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Check Prices Every Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Define products to track (you can load this from a database)\nconst productsToTrack = [\n  {\n    name: 'iPhone 15 Pro',\n    asin: 'B0CHX1W1XY',\n    targetPrice: 999,\n    category: 'Electronics'\n  },\n  {\n    name: 'Sony WH-1000XM5',\n    asin: 'B09XS7JWHH',\n    targetPrice: 349,\n    category: 'Audio'\n  },\n  {\n    name: 'MacBook Air M3',\n    asin: 'B0CX23V2ZK',\n    targetPrice: 1099,\n    category: 'Computers'\n  },\n  {\n    name: 'iPad Pro 12.9',\n    asin: 'B0BJLF2BRM',\n    targetPrice: 999,\n    category: 'Tablets'\n  },\n  {\n    name: 'Samsung Galaxy S24',\n    asin: 'B0CMDRCZBJ',\n    targetPrice: 799,\n    category: 'Phones'\n  }\n];\n\nreturn productsToTrack.map(p => ({ json: p }));"
+      },
+      "id": "load-tracked-products",
+      "name": "Load Tracked Products",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.rainforestapi.com/request",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "api_key",
+              "value": "={{ $env.RAINFOREST_API_KEY }}"
+            },
+            {
+              "name": "type",
+              "value": "product"
+            },
+            {
+              "name": "amazon_domain",
+              "value": "amazon.com"
+            },
+            {
+              "name": "asin",
+              "value": "={{ $json.asin }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-current-price",
+      "name": "Fetch Current Price",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compare current price with target price\nconst items = $input.all();\nconst output = [];\n\nfor (const item of items) {\n  const product = item.json.product || {};\n  const pricing = product.buybox_winner || product.pricing || {};\n  \n  const currentPrice = parseFloat(pricing.price?.value || pricing.current_price || 0);\n  const originalPrice = parseFloat(pricing.rrp?.value || pricing.list_price || currentPrice);\n  const targetPrice = parseFloat($('Load Tracked Products').item.json.targetPrice);\n  const productName = $('Load Tracked Products').item.json.name;\n  const category = $('Load Tracked Products').item.json.category;\n  \n  // Calculate discount\n  const discount = originalPrice > currentPrice \n    ? Math.round(((originalPrice - currentPrice) / originalPrice) * 100)\n    : 0;\n  \n  const priceDropPercent = targetPrice > 0 \n    ? Math.round(((targetPrice - currentPrice) / targetPrice) * 100)\n    : 0;\n  \n  // Check if price is below target or has significant discount\n  const isPriceDrop = currentPrice <= targetPrice || discount >= 20;\n  \n  if (isPriceDrop && currentPrice > 0) {\n    // Get product details\n    const title = product.title || productName;\n    const imageUrl = product.main_image?.link || product.image;\n    const rating = product.rating || 0;\n    const ratingsTotal = product.ratings_total || 0;\n    const link = product.link || `https://amazon.com/dp/${$('Load Tracked Products').item.json.asin}`;\n    \n    output.push({\n      json: {\n        productName: title,\n        currentPrice: currentPrice,\n        originalPrice: originalPrice,\n        targetPrice: targetPrice,\n        discount: discount,\n        priceDropPercent: priceDropPercent,\n        savings: originalPrice - currentPrice,\n        rating: rating,\n        ratingsTotal: ratingsTotal,\n        imageUrl: imageUrl,\n        productUrl: link,\n        category: category,\n        asin: $('Load Tracked Products').item.json.asin,\n        isAlert: true,\n        timestamp: new Date().toISOString()\n      }\n    });\n  }\n}\n\nreturn output;"
+      },
+      "id": "check-price-drops",
+      "name": "Check for Price Drops",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.isAlert }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "filter-price-alerts",
+      "name": "Filter Price Alerts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate affiliate links and alert messages\nconst items = $input.all();\nconst output = [];\n\nfor (const item of items) {\n  const product = item.json;\n  \n  // Create affiliate link\n  const affiliateTag = process.env.AMAZON_AFFILIATE_TAG || 'yourtag-20';\n  const affiliateUrl = `${product.productUrl}?tag=${affiliateTag}`;\n  \n  // Generate alert messages\n  const emojis = ['🚨', '⚡', '🔥', '💰', '🎉', '💎'];\n  const alertEmoji = emojis[Math.floor(Math.random() * emojis.length)];\n  \n  // Twitter/X alert (short)\n  const twitterAlert = \n    `${alertEmoji} PRICE DROP ALERT!\\n\\n` +\n    `${product.productName.substring(0, 60)}...\\n\\n` +\n    `💵 NOW: $${product.currentPrice.toFixed(2)}\\n` +\n    `${product.discount > 0 ? `📉 ${product.discount}% OFF (was $${product.originalPrice.toFixed(2)})\\n` : ''}` +\n    `⭐ ${product.rating}/5 (${product.ratingsTotal.toLocaleString()} reviews)\\n\\n` +\n    `🛒 ${affiliateUrl}\\n\\n` +\n    `#Deals #Amazon #PriceDrop #${product.category}`;\n  \n  // Facebook/Telegram alert (detailed)\n  const detailedAlert = \n    `${alertEmoji} PRICE DROP ALERT! ${alertEmoji}\\n\\n` +\n    `📦 ${product.productName}\\n\\n` +\n    `💰 Current Price: $${product.currentPrice.toFixed(2)}\\n` +\n    `${product.originalPrice > product.currentPrice ? `🏷️ Was: $${product.originalPrice.toFixed(2)}\\n` : ''}` +\n    `${product.discount > 0 ? `📊 Discount: ${product.discount}% OFF\\n` : ''}` +\n    `💵 You Save: $${product.savings.toFixed(2)}\\n\\n` +\n    `⭐ Rating: ${product.rating}/5.0 (${product.ratingsTotal.toLocaleString()} reviews)\\n\\n` +\n    `✅ ${product.priceDropPercent > 0 ? `${Math.abs(product.priceDropPercent)}% below target price!` : 'Hit target price!'}\\n\\n` +\n    `🛒 Get it now: ${affiliateUrl}\\n\\n` +\n    `#AmazonDeals #PriceDrop #${product.category} #Shopping #BestPrice #LimitedTime`;\n  \n  // Email alert\n  const emailSubject = `🚨 Price Drop: ${product.productName} - Save $${product.savings.toFixed(2)}!`;\n  const emailBody = \n    `<h2>${alertEmoji} Price Drop Alert!</h2>` +\n    `<h3>${product.productName}</h3>` +\n    `${product.imageUrl ? `<img src=\"${product.imageUrl}\" alt=\"Product\" style=\"max-width: 300px;\"/>` : ''}` +\n    `<p><strong>Current Price:</strong> <span style=\"color: red; font-size: 24px;\">$${product.currentPrice.toFixed(2)}</span></p>` +\n    `${product.originalPrice > product.currentPrice ? `<p><s>Was: $${product.originalPrice.toFixed(2)}</s></p>` : ''}` +\n    `${product.discount > 0 ? `<p style=\"color: green;\"><strong>${product.discount}% OFF</strong></p>` : ''}` +\n    `<p><strong>You Save:</strong> $${product.savings.toFixed(2)}</p>` +\n    `<p>⭐ ${product.rating}/5 (${product.ratingsTotal.toLocaleString()} reviews)</p>` +\n    `<p><a href=\"${affiliateUrl}\" style=\"background: #ff9900; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; display: inline-block;\">Get This Deal Now</a></p>` +\n    `<p style=\"color: #666; font-size: 12px;\">This is an affiliate link. We may earn a commission from qualifying purchases.</p>`;\n  \n  output.push({\n    json: {\n      ...product,\n      affiliateUrl: affiliateUrl,\n      twitterAlert: twitterAlert,\n      detailedAlert: detailedAlert,\n      emailSubject: emailSubject,\n      emailBody: emailBody\n    }\n  });\n}\n\nreturn output;"
+      },
+      "id": "generate-alerts",
+      "name": "Generate Alert Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "resource": "tweet",
+        "operation": "create",
+        "text": "={{ $json.twitterAlert }}",
+        "additionalFields": {}
+      },
+      "id": "post-to-twitter",
+      "name": "Alert on Twitter/X",
+      "type": "n8n-nodes-base.twitter",
+      "typeVersion": 2,
+      "position": [1570, 150],
+      "credentials": {
+        "twitterOAuth2Api": {
+          "id": "6",
+          "name": "Twitter OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "page",
+        "operation": "create",
+        "pageId": "={{ $env.FACEBOOK_PAGE_ID }}",
+        "content": "={{ $json.detailedAlert }}",
+        "additionalFields": {
+          "link": "={{ $json.affiliateUrl }}"
+        }
+      },
+      "id": "post-to-facebook",
+      "name": "Alert on Facebook",
+      "type": "n8n-nodes-base.facebookGraphApi",
+      "typeVersion": 1,
+      "position": [1570, 300],
+      "credentials": {
+        "facebookGraphApi": {
+          "id": "1",
+          "name": "Facebook Page Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHANNEL_ID }}\",\n  \"text\": \"{{ $json.detailedAlert }}\",\n  \"parse_mode\": \"HTML\",\n  \"disable_web_page_preview\": false\n}",
+        "options": {}
+      },
+      "id": "send-telegram-alert",
+      "name": "Alert on Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1570, 450]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.EMAIL_FROM }}",
+        "toEmail": "={{ $env.EMAIL_SUBSCRIBERS }}",
+        "subject": "={{ $json.emailSubject }}",
+        "emailType": "html",
+        "message": "={{ $json.emailBody }}",
+        "options": {}
+      },
+      "id": "send-email-alert",
+      "name": "Send Email Alert to Subscribers",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1570, 600],
+      "credentials": {
+        "smtp": {
+          "id": "7",
+          "name": "SMTP Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/webhooks/{{ $env.DISCORD_WEBHOOK_ID }}/{{ $env.DISCORD_WEBHOOK_TOKEN }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"embeds\": [{\n    \"title\": \"🚨 Price Drop Alert!\",\n    \"description\": \"{{ $json.productName }}\",\n    \"color\": 15158332,\n    \"fields\": [\n      {\n        \"name\": \"💰 Current Price\",\n        \"value\": \"${{ $json.currentPrice.toFixed(2) }}\",\n        \"inline\": true\n      },\n      {\n        \"name\": \"📉 Discount\",\n        \"value\": \"{{ $json.discount }}% OFF\",\n        \"inline\": true\n      },\n      {\n        \"name\": \"💵 You Save\",\n        \"value\": \"${{ $json.savings.toFixed(2) }}\",\n        \"inline\": true\n      },\n      {\n        \"name\": \"⭐ Rating\",\n        \"value\": \"{{ $json.rating }}/5 ({{ $json.ratingsTotal }} reviews)\",\n        \"inline\": false\n      },\n      {\n        \"name\": \"🔗 Link\",\n        \"value\": \"[Get This Deal]({{ $json.affiliateUrl }})\",\n        \"inline\": false\n      }\n    ],\n    \"thumbnail\": {\n      \"url\": \"{{ $json.imageUrl }}\"\n    },\n    \"timestamp\": \"{{ $json.timestamp }}\"\n  }]\n}",
+        "options": {}
+      },
+      "id": "send-discord-alert",
+      "name": "Alert on Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1570, 750]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Store price history in database (you can implement this)\nconst items = $input.all();\n\nconst priceHistory = items.map(item => ({\n  productName: item.json.productName,\n  asin: item.json.asin,\n  price: item.json.currentPrice,\n  originalPrice: item.json.originalPrice,\n  discount: item.json.discount,\n  timestamp: item.json.timestamp,\n  alertSent: true,\n  platforms: ['Twitter', 'Facebook', 'Telegram', 'Email', 'Discord']\n}));\n\nconsole.log('Price alerts sent:', JSON.stringify(priceHistory, null, 2));\n\n// Return summary\nreturn [{\n  json: {\n    totalAlerts: items.length,\n    averageSavings: items.reduce((sum, i) => sum + i.json.savings, 0) / items.length,\n    totalSavings: items.reduce((sum, i) => sum + i.json.savings, 0),\n    products: priceHistory,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "log-price-history",
+      "name": "Log Price History",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1790, 450]
+    }
+  ],
+  "connections": {
+    "Check Prices Every Hour": {
+      "main": [
+        [
+          {
+            "node": "Load Tracked Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Tracked Products": {
+      "main": [
+        [
+          {
+            "node": "Fetch Current Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Current Price": {
+      "main": [
+        [
+          {
+            "node": "Check for Price Drops",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Price Drops": {
+      "main": [
+        [
+          {
+            "node": "Filter Price Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Price Alerts": {
+      "main": [
+        [
+          {
+            "node": "Generate Alert Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Alert Messages": {
+      "main": [
+        [
+          {
+            "node": "Alert on Twitter/X",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Alert on Facebook",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Alert on Telegram",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email Alert to Subscribers",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Alert on Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert on Twitter/X": {
+      "main": [
+        [
+          {
+            "node": "Log Price History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert on Facebook": {
+      "main": [
+        [
+          {
+            "node": "Log Price History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert on Telegram": {
+      "main": [
+        [
+          {
+            "node": "Log Price History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email Alert to Subscribers": {
+      "main": [
+        [
+          {
+            "node": "Log Price History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert on Discord": {
+      "main": [
+        [
+          {
+            "node": "Log Price History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "Price Monitoring",
+      "id": "price-monitor"
+    },
+    {
+      "name": "Affiliate Marketing",
+      "id": "affiliate"
+    },
+    {
+      "name": "Multi-Channel Alerts",
+      "id": "alerts"
+    }
+  ],
+  "meta": {
+    "instanceId": "auto-generated"
+  },
+  "id": "price-drop-alerts",
+  "versionId": "1"
+}
