@@ -1,0 +1,463 @@
+{
+  "name": "AI Video Generator & Multi-Platform Publisher (Sora2/Veo3)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate trending video ideas based on current topics\nconst topics = [\n  'Amazing AI technology transformation',\n  'Future of artificial intelligence',\n  'Stunning visual effects showcase',\n  'Nature beauty in 4K cinematic',\n  'Urban lifestyle modern living',\n  'Motivational success journey',\n  'Technology innovation breakthrough',\n  'Creative art and design',\n  'Travel destinations breathtaking views',\n  'Futuristic city night lights'\n];\n\nconst randomTopic = topics[Math.floor(Math.random() * topics.length)];\n\n// Create video prompts for both Sora and Veo\nconst videoPrompts = [\n  {\n    model: 'sora',\n    prompt: `Cinematic 4K video of ${randomTopic}, professional lighting, smooth camera movement, high quality production, trending style`,\n    duration: 10,\n    aspectRatio: '9:16' // Vertical for TikTok/Reels/Shorts\n  },\n  {\n    model: 'veo',\n    prompt: `Ultra realistic ${randomTopic}, 4K resolution, cinematic camera angles, dramatic lighting, viral-worthy content`,\n    duration: 10,\n    aspectRatio: '9:16'\n  }\n];\n\n// Select one randomly\nconst selectedPrompt = videoPrompts[Math.floor(Math.random() * videoPrompts.length)];\n\nreturn [{\n  json: {\n    videoPrompt: selectedPrompt.prompt,\n    model: selectedPrompt.model,\n    duration: selectedPrompt.duration,\n    aspectRatio: selectedPrompt.aspectRatio,\n    title: randomTopic,\n    hashtags: '#AI #Viral #Trending #Amazing #MustWatch #ForYou #FYP'\n  }\n}];"
+      },
+      "id": "generate-video-idea",
+      "name": "Generate Video Idea",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.model }}",
+              "operation": "equals",
+              "value2": "sora"
+            }
+          ]
+        }
+      },
+      "id": "route-by-model",
+      "name": "Route by AI Model",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/videos",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"sora-1.5-turbo\",\n  \"prompt\": \"{{ $json.videoPrompt }}\",\n  \"size\": \"{{ $json.aspectRatio }}\",\n  \"duration\": {{ $json.duration }}\n}",
+        "options": {}
+      },
+      "id": "generate-sora-video",
+      "name": "Generate with Sora 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [910, 200],
+      "credentials": {
+        "openAiApi": {
+          "id": "2",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.wavespeed.io/api/v3/predictions",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.WAVESPEED_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"version\": \"veo-3-fast\",\n  \"input\": {\n    \"prompt\": \"{{ $json.videoPrompt }}\",\n    \"aspect_ratio\": \"{{ $json.aspectRatio }}\",\n    \"duration\": {{ $json.duration }}\n  }\n}",
+        "options": {}
+      },
+      "id": "generate-veo-video",
+      "name": "Generate with Veo 3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [910, 400]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "wait-for-sora",
+      "name": "Wait for Sora Generation",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1130, 200],
+      "webhookId": "sora-wait"
+    },
+    {
+      "parameters": {
+        "amount": 45,
+        "unit": "seconds"
+      },
+      "id": "wait-for-veo",
+      "name": "Wait for Veo Generation",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1130, 400],
+      "webhookId": "veo-wait"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.openai.com/v1/videos/{{ $json.id }}/content",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-sora-video",
+      "name": "Download Sora Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1350, 200],
+      "credentials": {
+        "openAiApi": {
+          "id": "2",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.wavespeed.io/api/v3/predictions/{{ $json.id }}/result",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-veo-video",
+      "name": "Download Veo Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1350, 400]
+    },
+    {
+      "parameters": {
+        "operation": "merge",
+        "mode": "append"
+      },
+      "id": "merge-videos",
+      "name": "Merge Video Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [1570, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare video metadata for multi-platform upload\nconst items = $input.all();\nconst output = [];\n\nfor (const item of items) {\n  const title = item.json.title || 'Amazing AI Generated Video';\n  const hashtags = item.json.hashtags || '#AI #Trending';\n  \n  // Create platform-specific descriptions\n  const descriptions = {\n    tiktok: `${title} 🚀\\n\\n${hashtags}\\n\\n#TikTok #Viral #ForYouPage`,\n    youtube: `${title}\\n\\nAI-generated short video showcasing amazing content.\\n\\n${hashtags}\\n\\n#YouTubeShorts #Shorts`,\n    instagram: `${title} ✨\\n\\n${hashtags}\\n\\n#InstagramReels #Reels #Explore`\n  };\n  \n  output.push({\n    json: {\n      videoData: item.binary,\n      title: title,\n      tiktokDescription: descriptions.tiktok,\n      youtubeDescription: descriptions.youtube,\n      instagramDescription: descriptions.instagram\n    },\n    binary: item.binary\n  });\n}\n\nreturn output;"
+      },
+      "id": "prepare-metadata",
+      "name": "Prepare Platform Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1790, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://open.tiktokapis.com/v2/post/publish/video/init/",
+        "authentication": "oAuth2",
+        "sendHeaders": true,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"post_info\": {\n    \"title\": \"{{ $json.title }}\",\n    \"description\": \"{{ $json.tiktokDescription }}\",\n    \"privacy_level\": \"PUBLIC_TO_EVERYONE\",\n    \"disable_duet\": false,\n    \"disable_comment\": false,\n    \"disable_stitch\": false,\n    \"video_cover_timestamp_ms\": 1000\n  },\n  \"source_info\": {\n    \"source\": \"FILE_UPLOAD\",\n    \"video_size\": {{ $binary.data.fileSize }},\n    \"chunk_size\": 10000000,\n    \"total_chunk_count\": 1\n  }\n}",
+        "options": {}
+      },
+      "id": "upload-to-tiktok",
+      "name": "Upload to TikTok",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2010, 150],
+      "credentials": {
+        "tiktokOAuth2Api": {
+          "id": "3",
+          "name": "TikTok OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "video": "={{ $binary.data }}",
+        "title": "={{ $json.title }}",
+        "description": "={{ $json.youtubeDescription }}",
+        "categoryId": "22",
+        "additionalFields": {
+          "privacyStatus": "public",
+          "madeForKids": false
+        }
+      },
+      "id": "upload-to-youtube",
+      "name": "Upload to YouTube Shorts",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [2010, 300],
+      "credentials": {
+        "youtubeOAuth2Api": {
+          "id": "4",
+          "name": "YouTube OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v18.0/me/media",
+        "authentication": "oAuth2",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"media_type\": \"REELS\",\n  \"video_url\": \"{{ $binary.data.url }}\",\n  \"caption\": \"{{ $json.instagramDescription }}\",\n  \"share_to_feed\": true\n}",
+        "options": {}
+      },
+      "id": "upload-to-instagram",
+      "name": "Upload to Instagram Reels",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2010, 450],
+      "credentials": {
+        "instagramOAuth2Api": {
+          "id": "5",
+          "name": "Instagram OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Track upload results\nconst items = $input.all();\nconst successCount = items.filter(i => i.json.success || i.json.id).length;\n\nconsole.log(`Successfully uploaded to ${successCount} platforms`);\nconsole.log('Video generation and distribution complete!');\n\nreturn [{\n  json: {\n    totalUploads: items.length,\n    successfulUploads: successCount,\n    timestamp: new Date().toISOString(),\n    status: 'completed'\n  }\n}];"
+      },
+      "id": "track-results",
+      "name": "Track Upload Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2230, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Every 6 Hours": {
+      "main": [
+        [
+          {
+            "node": "Generate Video Idea",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Video Idea": {
+      "main": [
+        [
+          {
+            "node": "Route by AI Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by AI Model": {
+      "main": [
+        [
+          {
+            "node": "Generate with Sora 2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Generate with Veo 3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate with Sora 2": {
+      "main": [
+        [
+          {
+            "node": "Wait for Sora Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate with Veo 3": {
+      "main": [
+        [
+          {
+            "node": "Wait for Veo Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Sora Generation": {
+      "main": [
+        [
+          {
+            "node": "Download Sora Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Veo Generation": {
+      "main": [
+        [
+          {
+            "node": "Download Veo Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Sora Video": {
+      "main": [
+        [
+          {
+            "node": "Merge Video Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Veo Video": {
+      "main": [
+        [
+          {
+            "node": "Merge Video Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Video Sources": {
+      "main": [
+        [
+          {
+            "node": "Prepare Platform Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Platform Metadata": {
+      "main": [
+        [
+          {
+            "node": "Upload to TikTok",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Upload to YouTube Shorts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Upload to Instagram Reels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to TikTok": {
+      "main": [
+        [
+          {
+            "node": "Track Upload Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to YouTube Shorts": {
+      "main": [
+        [
+          {
+            "node": "Track Upload Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Instagram Reels": {
+      "main": [
+        [
+          {
+            "node": "Track Upload Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "AI Video",
+      "id": "ai-video"
+    },
+    {
+      "name": "Multi-Platform",
+      "id": "multi-platform"
+    },
+    {
+      "name": "Automation",
+      "id": "automation"
+    }
+  ],
+  "meta": {
+    "instanceId": "auto-generated"
+  },
+  "id": "ai-video-multi-platform",
+  "versionId": "1"
+}

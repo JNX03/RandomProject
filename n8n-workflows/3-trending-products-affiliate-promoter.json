@@ -1,0 +1,371 @@
+{
+  "name": "Trending Products Affiliate Marketing Promoter",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 4
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Every 4 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.bestbuy.com/v1/products/mostViewed",
+        "authentication": "genericCredentialType",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "apiKey",
+              "value": "={{ $env.BESTBUY_API_KEY }}"
+            },
+            {
+              "name": "format",
+              "value": "json"
+            },
+            {
+              "name": "pageSize",
+              "value": "10"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-trending-products",
+      "name": "Fetch Trending Products",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [470, 200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.rainforestapi.com/request",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "api_key",
+              "value": "={{ $env.RAINFOREST_API_KEY }}"
+            },
+            {
+              "name": "type",
+              "value": "bestsellers"
+            },
+            {
+              "name": "amazon_domain",
+              "value": "amazon.com"
+            },
+            {
+              "name": "category_id",
+              "value": "bestsellers"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-amazon-bestsellers",
+      "name": "Fetch Amazon Bestsellers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [470, 400]
+    },
+    {
+      "parameters": {
+        "operation": "merge",
+        "mode": "append"
+      },
+      "id": "merge-products",
+      "name": "Merge Product Lists",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter and score products for promotion potential\nconst items = $input.all();\nconst output = [];\n\nfor (const item of items) {\n  const product = item.json;\n  \n  // Calculate promotion score\n  let score = 0;\n  const price = parseFloat(product.price || product.salePrice || 0);\n  const rating = parseFloat(product.rating || product.customerReviewAverage || 0);\n  const reviews = parseInt(product.reviewCount || product.customerReviewCount || 0);\n  \n  // Scoring criteria\n  if (price > 50 && price < 500) score += 30; // Good commission range\n  if (rating >= 4.0) score += 25;\n  if (reviews > 100) score += 20;\n  if (product.onSale || product.specialOffer) score += 15;\n  if (price > 100) score += 10; // Higher commission\n  \n  // Only promote products with score > 50\n  if (score > 50) {\n    output.push({\n      json: {\n        productName: product.name || product.title,\n        price: price,\n        originalPrice: product.regularPrice || price,\n        rating: rating,\n        reviewCount: reviews,\n        imageUrl: product.image || product.thumbnailImage,\n        productUrl: product.url || product.link,\n        description: product.shortDescription || product.description,\n        score: score,\n        category: product.category || product.categoryPath\n      }\n    });\n  }\n}\n\n// Sort by score and return top 5\nreturn output.sort((a, b) => b.json.score - a.json.score).slice(0, 5);"
+      },
+      "id": "filter-best-products",
+      "name": "Filter Best Products to Promote",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate affiliate links and promotional content\nconst items = $input.all();\nconst output = [];\n\nfor (const item of items) {\n  const product = item.json;\n  \n  // Create affiliate link (replace with your affiliate ID)\n  const affiliateTag = process.env.AMAZON_AFFILIATE_TAG || 'yourtag-20';\n  let affiliateUrl = product.productUrl;\n  \n  if (affiliateUrl.includes('amazon.com')) {\n    affiliateUrl = `${affiliateUrl}?tag=${affiliateTag}`;\n  }\n  \n  // Calculate discount percentage\n  const discount = product.originalPrice > product.price \n    ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)\n    : 0;\n  \n  // Generate compelling promotional text\n  const emojis = ['🔥', '⚡', '💎', '🎯', '✨', '🚀', '💰', '🎁'];\n  const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];\n  \n  let promoText = `${randomEmoji} HOT DEAL ALERT!\\n\\n`;\n  promoText += `${product.productName}\\n\\n`;\n  \n  if (discount > 0) {\n    promoText += `💰 ${discount}% OFF - NOW $${product.price.toFixed(2)}\\n`;\n    promoText += `(Was $${product.originalPrice.toFixed(2)})\\n\\n`;\n  } else {\n    promoText += `💵 Only $${product.price.toFixed(2)}\\n\\n`;\n  }\n  \n  if (product.rating > 0) {\n    promoText += `⭐ ${product.rating}/5.0 (${product.reviewCount.toLocaleString()} reviews)\\n\\n`;\n  }\n  \n  promoText += `${product.description ? product.description.substring(0, 150) + '...' : ''}\\n\\n`;\n  promoText += `🛒 Get it here: ${affiliateUrl}\\n\\n`;\n  promoText += `#AmazonFinds #Deals #Shopping #BestPrice #OnlineShopping #MustHave #AffiliateLinkInBio`;\n  \n  // Create Twitter/X version (shorter)\n  const twitterText = `${randomEmoji} ${product.productName}\\n\\n` +\n    `${discount > 0 ? `${discount}% OFF - ` : ''}$${product.price.toFixed(2)}\\n` +\n    `⭐ ${product.rating}/5 (${product.reviewCount}+ reviews)\\n\\n` +\n    `${affiliateUrl}\\n\\n#Deals #Shopping #Amazon`;\n  \n  output.push({\n    json: {\n      productName: product.productName,\n      affiliateUrl: affiliateUrl,\n      promoText: promoText,\n      twitterText: twitterText,\n      imageUrl: product.imageUrl,\n      price: product.price,\n      discount: discount,\n      rating: product.rating\n    }\n  });\n}\n\nreturn output;"
+      },
+      "id": "generate-affiliate-content",
+      "name": "Generate Affiliate Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "resource": "tweet",
+        "operation": "create",
+        "text": "={{ $json.twitterText }}",
+        "additionalFields": {}
+      },
+      "id": "post-to-twitter",
+      "name": "Post to Twitter/X",
+      "type": "n8n-nodes-base.twitter",
+      "typeVersion": 2,
+      "position": [1350, 200],
+      "credentials": {
+        "twitterOAuth2Api": {
+          "id": "6",
+          "name": "Twitter OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "page",
+        "operation": "create",
+        "pageId": "={{ $env.FACEBOOK_PAGE_ID }}",
+        "content": "={{ $json.promoText }}",
+        "additionalFields": {
+          "link": "={{ $json.affiliateUrl }}"
+        }
+      },
+      "id": "post-to-facebook",
+      "name": "Post to Facebook Page",
+      "type": "n8n-nodes-base.facebookGraphApi",
+      "typeVersion": 1,
+      "position": [1350, 350],
+      "credentials": {
+        "facebookGraphApi": {
+          "id": "1",
+          "name": "Facebook Page Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHANNEL_ID }}\",\n  \"text\": \"{{ $json.promoText }}\",\n  \"parse_mode\": \"HTML\",\n  \"disable_web_page_preview\": false\n}",
+        "options": {}
+      },
+      "id": "post-to-telegram",
+      "name": "Post to Telegram Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1350, 500]
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "minutes"
+      },
+      "id": "delay-between-posts",
+      "name": "Wait 10 Min Between Posts",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1570, 300],
+      "webhookId": "affiliate-delay"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Track affiliate post performance\nconst items = $input.all();\nconst timestamp = new Date().toISOString();\n\nconst summary = {\n  totalProductsPromoted: items.length,\n  platforms: ['Twitter', 'Facebook', 'Telegram'],\n  timestamp: timestamp,\n  products: items.map(i => ({\n    name: i.json.productName,\n    price: i.json.price,\n    discount: i.json.discount,\n    rating: i.json.rating\n  }))\n};\n\nconsole.log('Affiliate promotion complete:', JSON.stringify(summary, null, 2));\n\nreturn [{ json: summary }];"
+      },
+      "id": "track-promotion",
+      "name": "Track Promotion Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1790, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WEBHOOK_STATS_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "send-stats-webhook",
+      "name": "Send Stats to Webhook (Optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2010, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Every 4 Hours": {
+      "main": [
+        [
+          {
+            "node": "Fetch Trending Products",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Amazon Bestsellers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Trending Products": {
+      "main": [
+        [
+          {
+            "node": "Merge Product Lists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Amazon Bestsellers": {
+      "main": [
+        [
+          {
+            "node": "Merge Product Lists",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Product Lists": {
+      "main": [
+        [
+          {
+            "node": "Filter Best Products to Promote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Best Products to Promote": {
+      "main": [
+        [
+          {
+            "node": "Generate Affiliate Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Affiliate Content": {
+      "main": [
+        [
+          {
+            "node": "Post to Twitter/X",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Post to Facebook Page",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Post to Telegram Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Twitter/X": {
+      "main": [
+        [
+          {
+            "node": "Wait 10 Min Between Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Facebook Page": {
+      "main": [
+        [
+          {
+            "node": "Wait 10 Min Between Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Telegram Channel": {
+      "main": [
+        [
+          {
+            "node": "Wait 10 Min Between Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 10 Min Between Posts": {
+      "main": [
+        [
+          {
+            "node": "Track Promotion Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Promotion Results": {
+      "main": [
+        [
+          {
+            "node": "Send Stats to Webhook (Optional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "Affiliate Marketing",
+      "id": "affiliate"
+    },
+    {
+      "name": "E-commerce",
+      "id": "ecommerce"
+    },
+    {
+      "name": "Revenue Generation",
+      "id": "revenue"
+    }
+  ],
+  "meta": {
+    "instanceId": "auto-generated"
+  },
+  "id": "affiliate-products-promoter",
+  "versionId": "1"
+}

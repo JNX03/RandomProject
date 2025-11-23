@@ -1,0 +1,277 @@
+{
+  "name": "Thailand News & Drama Auto-Poster to Facebook",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://www.bangkokpost.com/rss/data/news.xml",
+        "options": {}
+      },
+      "id": "rss-bangkokpost",
+      "name": "Bangkok Post News RSS",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [470, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://www.bangkokpost.com/rss/data/entertainment.xml",
+        "options": {}
+      },
+      "id": "rss-entertainment",
+      "name": "Bangkok Post Entertainment RSS",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [470, 400]
+    },
+    {
+      "parameters": {
+        "operation": "merge",
+        "mode": "append"
+      },
+      "id": "merge-feeds",
+      "name": "Merge RSS Feeds",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.pubDate }}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{ $json.title }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "filter-valid-posts",
+      "name": "Filter Valid Posts",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract and format the post content\nconst items = $input.all();\nconst output = [];\n\nfor (const item of items) {\n  const title = item.json.title || '';\n  const description = item.json.description || item.json.contentSnippet || '';\n  const link = item.json.link || '';\n  const pubDate = new Date(item.json.pubDate);\n  const now = new Date();\n  \n  // Only post items from last 3 hours to avoid duplicates\n  const hoursDiff = (now - pubDate) / (1000 * 60 * 60);\n  \n  if (hoursDiff <= 3) {\n    // Create engaging post text\n    let postText = `🔥 ${title}\\n\\n`;\n    \n    // Add description (limit to 200 chars)\n    const cleanDesc = description.replace(/<[^>]*>/g, '').substring(0, 200);\n    if (cleanDesc) {\n      postText += `${cleanDesc}...\\n\\n`;\n    }\n    \n    // Add hashtags based on content\n    const hashtags = [];\n    if (title.toLowerCase().includes('drama') || title.toLowerCase().includes('ละคร')) {\n      hashtags.push('#ThaiDrama', '#ละครไทย', '#ThaiEntertainment');\n    }\n    if (title.toLowerCase().includes('news') || title.toLowerCase().includes('ข่าว')) {\n      hashtags.push('#ThailandNews', '#ข่าวไทย', '#Thailand');\n    }\n    hashtags.push('#BangkokPost', '#ThaiCulture');\n    \n    postText += hashtags.join(' ') + '\\n\\n';\n    postText += `อ่านเพิ่มเติม: ${link}`;\n    \n    output.push({\n      json: {\n        message: postText,\n        link: link,\n        title: title,\n        originalPubDate: item.json.pubDate\n      }\n    });\n  }\n}\n\nreturn output;"
+      },
+      "id": "format-post",
+      "name": "Format Post Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "resource": "page",
+        "operation": "create",
+        "pageId": "={{ $env.FACEBOOK_PAGE_ID }}",
+        "content": "={{ $json.message }}",
+        "additionalFields": {
+          "link": "={{ $json.link }}"
+        }
+      },
+      "id": "post-to-facebook",
+      "name": "Post to Facebook Page",
+      "type": "n8n-nodes-base.facebookGraphApi",
+      "typeVersion": 1,
+      "position": [1350, 300],
+      "credentials": {
+        "facebookGraphApi": {
+          "id": "1",
+          "name": "Facebook Page Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "minutes"
+      },
+      "id": "delay-between-posts",
+      "name": "Wait 5 Min Between Posts",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1570, 300],
+      "webhookId": "auto-delay"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.success }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-post-success",
+      "name": "Check Post Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1790, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log successful posts for tracking\nconst items = $input.all();\nconst successCount = items.length;\n\nconsole.log(`Successfully posted ${successCount} items to Facebook`);\n\nreturn items;"
+      },
+      "id": "log-success",
+      "name": "Log Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2010, 200]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Bangkok Post News RSS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Bangkok Post Entertainment RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bangkok Post News RSS": {
+      "main": [
+        [
+          {
+            "node": "Merge RSS Feeds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bangkok Post Entertainment RSS": {
+      "main": [
+        [
+          {
+            "node": "Merge RSS Feeds",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge RSS Feeds": {
+      "main": [
+        [
+          {
+            "node": "Filter Valid Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Valid Posts": {
+      "main": [
+        [
+          {
+            "node": "Format Post Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Post Content": {
+      "main": [
+        [
+          {
+            "node": "Post to Facebook Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Facebook Page": {
+      "main": [
+        [
+          {
+            "node": "Wait 5 Min Between Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5 Min Between Posts": {
+      "main": [
+        [
+          {
+            "node": "Check Post Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Post Success": {
+      "main": [
+        [
+          {
+            "node": "Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "Social Media Automation",
+      "id": "social-media"
+    },
+    {
+      "name": "Content Marketing",
+      "id": "content"
+    },
+    {
+      "name": "Thailand",
+      "id": "thailand"
+    }
+  ],
+  "meta": {
+    "instanceId": "auto-generated"
+  },
+  "id": "thailand-news-facebook-poster",
+  "versionId": "1"
+}
